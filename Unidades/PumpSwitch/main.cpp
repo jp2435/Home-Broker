@@ -2,7 +2,7 @@
  * UNIT HEADER
  * ========================
  * Nome da Unidade: Pump Switch
- * Versão: v1.0.0
+ * Versão: v1.1.0
  * Microcontrolador: ESP8266
  * Autor: Jorge CP
  * Data: 05/07/2025
@@ -10,11 +10,11 @@
  */
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-
-const char* ssid = "{{ssid}}";
-const char* password = "{{password}}";
+#include <ESP8266HTTPUpdateServer.h>
+#include "secrets.h"
 
 ESP8266WebServer server(80);
+ESP8266HTTPUpdateServer httpUpdater;
 
 const int relayPin = 5; // GPIO5 => D1
 const int buttonPin = 14; // GPIO14 => D5
@@ -26,10 +26,6 @@ int ultimoEstadoBotao=HIGH;
 unsigned long ultimoDebounceTime=0;
 unsigned long debounceDelay= 50; // 50ms pra debounc
 
-IPAddress local_IP(192, 168, 0, 60);
-IPAddress gateway(192, 168, 0, 62);
-IPAddress subnet(255, 255, 255, 192);  // Subnet /26
-IPAddress dns(8, 8, 8, 8);
 
 void handleRoot();
 void handleToggle();
@@ -46,7 +42,7 @@ void setup() {
     Serial.println("Falha ao configurar IP fixo");
   }
 
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -56,10 +52,14 @@ void setup() {
   Serial.println("\nWiFi connected");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
+
+  httpUpdater.setup(&server,"/firmware",OTA_USER,OTA_PASS);
+
   server.on("/", handleRoot);
   server.on("/toggle", handleToggle);
   server.on("/status", handleStatus);
   server.begin();
+
 }
 
 void loop() {
@@ -110,34 +110,46 @@ void handleRoot() {
   String html = R"rawliteral(
 <!DOCTYPE html><html>
 <head>
-  <title>PumpSwitch</title>
+  <title>Pump Switch</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; }
+    .header { background:#a8b5f0; padding:20px; text-align:center; font-size:28px; font-weight:bold; color:white; }
+    .content { background:#4a63d9; min-height:calc(100vh - 60px); text-align:center; padding:40px 20px; }
+    .status-label { font-size:24px; font-weight:bold; color:white; margin-bottom:10px; }
+    .status { font-size:26px; font-weight:bold; margin-bottom:40px; }
+    .button { background:#a8b5f0; border:none; border-radius:30px; padding:15px 30px; font-size:18px; font-weight:bold; color:#1c2b4a; cursor:pointer; }
+  </style>
 </head>
-<script>
-  function updateState() {
-    fetch('/status')
-      .then(response => response.json())
-      .then(data => {
-        document.getElementById("estado").innerText = data.state == "on" ? "ON" : "OFF";
-      })
-      .catch(err => console.log("Erro:", err));
-  }
-
-  function toggle() {
-    fetch('/toggle')
-      .then(() => updateState());
-  }
-
-  setInterval(updateState, 5000); // chama a cada 5 s
-  updateState(); // chama logo no início
-</script>
 <body>
-  <h1>PumpSwitch</h1>
-  <p>Estado: <strong id="estado">...</strong></p>
-  <button onclick="toggle()">Toggle Pump</button>
+  <div class="header">Pump Switch</div>
+  <div class="content">
+    <div class="status-label">Estado</div>
+    <div id="estado" class="status">...</div>
+    <button class="button" onclick="toggle()">Ligar/Desligar</button>
+  </div>
 
+  <script>
+    function updateState(){
+      fetch('/status').then(res=>res.json()).then(data=>{
+        let estado = document.getElementById("estado");
+        if(data.state=="on"){
+          estado.innerText="Ligado";
+          estado.style.color="limegreen";
+        }else{
+          estado.innerText="Desligado";
+          estado.style.color="red";
+        }
+      });
+    }
+    function toggle(){
+      fetch('/toggle').then(()=>updateState());
+    }
+    setInterval(updateState, 1000);
+    updateState();
+  </script>
 </body>
 </html>
 )rawliteral";
-
   server.send(200, "text/html", html);
 }
